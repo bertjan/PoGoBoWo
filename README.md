@@ -1,6 +1,6 @@
 PoGoWoBo
 ========
-[![Build Status](https://travis-ci.org/BoBeR182/Pokemon-Go-Bot-Working-Hack-API.svg?branch=master)](https://travis-ci.org/BoBeR182/Pokemon-Go-Bot-Working-Hack-API)
+[![Build Status](https://travis-ci.org/BoBeR182/PoGoBoWo.svg?branch=master)](https://travis-ci.org/BoBeR182/PoGoBoWo)
 
 Bitcoin: 1HJ5kY14HMTjE3DfTEDr9YkRMxCS5PHPta
 
@@ -12,7 +12,7 @@ Just wait some time between switching locations or spin 40 Pokestops.
 ### Important Announcement
 If your bot stops working all of a sudden and doesn't move, input your latitude and longitude manually in pokebot.py. This happened because there is a limit to how many calls you can make for the API. If the bot is getting JSON errors and you you are 100% sure your config is right, check to see if the servers are down at https://go.jooas.com/
 
-## #Features
+### Features
 + Incubate eggs. Use stepsize less than 3.
 + CLI based to run on VPS
 + Auto evolve
@@ -41,6 +41,7 @@ If your bot stops working all of a sudden and doesn't move, input your latitude 
 ## Contibuting and TODO
 
 Feel free to contribute code, all you need to do is run `tox` before a commit or check with TravisCI.
+`pip install tox`
 
 + We need user freindly documentation in the wiki.
 + We need more awesome options to make it more bot like and faster, or more human like and slower.
