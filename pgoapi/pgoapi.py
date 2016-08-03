@@ -147,6 +147,7 @@ class PGoApi:
         self._auth_provider = None
         self._api_endpoint = None
         self.config = config
+        self.evolved_pokemon_ids = []
         self.set_position(*start_pos)
         self._pokeball_type = 1
         self.MIN_KEEP_IV = config.get("MIN_KEEP_IV", 0)
@@ -154,11 +155,12 @@ class PGoApi:
         self.RELEASE_DUPLICATES = config.get("RELEASE_DUPLICATE", 0)
         self.DUPLICATE_CP_FORGIVENESS = config.get("DUPLICATE_CP_FORGIVENESS", 0)
         self.MAX_BALL_TYPE = config.get("MAX_BALL_TYPE", 0)
-        self.RANDOM_SLEEP_TIME = config.get("RANDOM_SLEEP_TIME", 0)
+        self.SLOW_BUT_STEALTH = config.get("SLOW_BUT_STEALTH", 0)
         self._req_method_list = []
         self._heartbeat_number = 0
         self.pokemon_names = pokemon_names
         self.pokeballs = [0, 0, 0, 0]  # pokeball counts. set to 0 to force atleast one fort check  before trying to capture pokemon
+        self.map_cells = dict()
         self.min_item_counts = dict(
             ((getattr(Inventory, key), value) for key, value in config.get('MIN_ITEM_COUNTS', {}).iteritems())
         )
@@ -202,6 +204,9 @@ class PGoApi:
 
     def get_position(self):
         return (self._position_lat, self._position_lng, self._position_alt)
+
+    def get_position_raw(self):
+        return self._posf
 
     def set_position(self, lat, lng, alt):
         self.log.debug('Set Position - Lat: %s Long: %s Alt: %s', lat, lng, alt)
@@ -260,10 +265,12 @@ class PGoApi:
                 res['responses']['lat'] = self._posf[0]
                 res['responses']['lng'] = self._posf[1]
                 f.write(json.dumps(res['responses'], indent=2))
-            self.log.info("\n List of Pokemon:\n" + get_inventory_data(res, self.pokemon_names) + "\nTotal Pokemon count: " + str(get_pokemon_num(res)) + "\nEgg Hatching status: " + get_incubators_stat(res) + "\n")
-            self.log.info("\n Username: %s, Lvl: %s, XP: %s/%s \n Currencies: %s \n", player_data.get('username', 'NA'), player_stats.get('level', 'NA'), player_stats.get('experience', 'NA'), player_stats.get('next_level_xp', 'NA'), currency_data)
+            # new inventory data has just been saved, clearing evolved pokemons list
+            self.evolved_pokemon_ids = []
+            # create string with pokemon list, add users info and print everything
+            self.log.info("\n\nList of Pokemon:\n" + get_inventory_data(res, self.pokemon_names) + "\nTotal Pokemon count: " + str(get_pokemon_num(res)) + "\nEgg Hatching status: " + get_incubators_stat(res) + "\n")
+            self.log.info("\n\n Username: %s, Lvl: %s, XP: %s/%s \n Currencies: %s \n", player_data.get('username', 'NA'), player_stats.get('level', 'NA'), player_stats.get('experience', 'NA'), player_stats.get('next_level_xp', 'NA'), currency_data)
             self.log.debug(self.cleanup_inventory(res['responses']['GET_INVENTORY']['inventory_delta']['inventory_items']))
-
         self._heartbeat_number += 1
         return res
 
@@ -274,22 +281,28 @@ class PGoApi:
             for i, next_point in enumerate(get_increments(self._posf, step, self.config.get("STEP_SIZE", 200))):
                 self.set_position(*next_point)
                 self.heartbeat()
-                self.log.info("Sleeping before next heartbeat")
-                sleep(self.RANDOM_SLEEP_TIME * random.random() + 2)  # If you want to make it faster, delete this line... would not recommend though
+                self.log.debug("Sleeping before next heartbeat")
+                if self.SLOW_BUT_STEALTH:
+                    sleep(3 * random.random() + 2)
+                else:
+                    sleep(2)
                 # make sure we have atleast 1 ball
                 if sum(self.pokeballs) > 0:
                     while self.catch_near_pokemon():
-                        sleep(self.RANDOM_SLEEP_TIME * random.random() + 1) # If you want to make it faster, delete this line... would not recommend though
+                        if self.SLOW_BUT_STEALTH:
+                            sleep(3 * random.random() + 1) # If you want to make it faster, delete this line... would not recommend though
+                        else:
+                            sleep(1)
 
     # this is in charge of spinning a pokestop
     def spin_near_fort(self):
         map_cells = self.nearby_map_objects().get('responses', {}).get('GET_MAP_OBJECTS', {}).get('map_cells', {})
         forts = PGoApi.flatmap(lambda c: c.get('forts', []), map_cells)
+        sleep(3 * random.random() + 5)
         if self._start_pos and self._walk_count % self.config.get("RETURN_START_INTERVAL") == 0:
             destinations = filtered_forts(self._start_pos, forts)
         else:
             destinations = filtered_forts(self._posf, forts)
-
         if destinations:
             destination_num = random.randint(0, min(5, len(destinations) - 1))
             fort = destinations[destination_num]
@@ -315,7 +328,9 @@ class PGoApi:
     def catch_near_pokemon(self):
         map_cells = self.nearby_map_objects().get('responses', {}).get('GET_MAP_OBJECTS', {}).get('map_cells', {})
         pokemons = PGoApi.flatmap(lambda c: c.get('catchable_pokemons', []), map_cells)
-
+        sleep(3 * random.random() + 5)
+        # cache map cells for api
+        self.map_cells = map_cells
         # catch first pokemon:
         origin = (self._posf[0], self._posf[1])
         pokemon_distances = [(pokemon, distance_in_meters(origin, (pokemon['latitude'], pokemon['longitude']))) for pokemon in pokemons]
@@ -352,9 +367,9 @@ class PGoApi:
     def cleanup_inventory(self, inventory_items=None):
         if not inventory_items:
             inventory_items = self.get_inventory().call()['responses']['GET_INVENTORY']['inventory_delta']['inventory_items']
-
+            sleep(3 * random.random() + 5)
         all_actual_items = [xiq['inventory_item_data']["item"] for xiq in inventory_items if "item" in xiq['inventory_item_data']]
-        all_actual_item_str = "List of items:\n"
+        all_actual_item_str = "\n\nList of items:\n\n"
         all_actual_item_count = 0
         all_actual_items = sorted([x for x in all_actual_items if "count" in x], key=lambda x: x["item_id"])
         for xiq in all_actual_items:
@@ -363,7 +378,7 @@ class PGoApi:
             true_item_name = INVENTORY_DICT[xiq["item_id"]]
             all_actual_item_str += "Item_ID " + str(xiq["item_id"]) + "\titem count " + str(xiq["count"]) + "\t(" + true_item_name + ")\n"
             all_actual_item_count += xiq["count"]
-        all_actual_item_str += "Total item count: " + str(all_actual_item_count)
+        all_actual_item_str += "\nTotal item count: " + str(all_actual_item_count) + "\n"
         self.log.info(all_actual_item_str)
 
         caught_pokemon = defaultdict(list)
@@ -372,12 +387,12 @@ class PGoApi:
                 # This code block checks to see if the inventory item is an item or pokemon
                 pokemon = inventory_item['inventory_item_data']['pokemon_data']
                 if 'cp' in pokemon and "favorite" not in pokemon:
-                    caught_pokemon[pokemon["pokemon_id"]].append(pokemon)
+                    caught_pokemon[pokemon['pokemon_id']].append(pokemon)
             elif "item" in inventory_item['inventory_item_data']:
                 item = inventory_item['inventory_item_data']['item']  # Check to see if your holding too many items and recycles them
                 if item['item_id'] in self.min_item_counts and "count" in item and item['count'] > self.min_item_counts[item['item_id']]:
                     recycle_count = item['count'] - self.min_item_counts[item['item_id']]
-                    self.log.info("Recycling {0}, item count {1}".format(INVENTORY_DICT[item['item_id']], recycle_count))
+                    self.log.debug("Recycling {0}, item count {1}".format(INVENTORY_DICT[item['item_id']], recycle_count))
                     self.recycle_inventory_item(item_id=item['item_id'], count=recycle_count)
 
         for pokemons in caught_pokemon.values():
@@ -386,37 +401,47 @@ class PGoApi:
                 for pokemon in pokemons:
                     if pokemon['pokemon_id'] in CANDY_NEEDED_TO_EVOLVE:
                         for inventory_item in inventory_items:
-                            if "pokemon_family" in inventory_item['inventory_item_data'] and (inventory_item['inventory_item_data']['pokemon_family']['family_id'] == pokemon['pokemon_id'] or inventory_item['inventory_item_data']['pokemon_family']['family_id'] == (pokemon['pokemon_id'] - 1)) and ("candy" in inventory_item['inventory_item_data']['pokemon_family'] and inventory_item['inventory_item_data']['pokemon_family']['candy']) > CANDY_NEEDED_TO_EVOLVE[pokemon['pokemon_id']]:  # Check to see if the pokemon is able to evolve or not, supports t2 evolutions
+                            if "pokemon_family" in inventory_item['inventory_item_data'] and (inventory_item['inventory_item_data']['pokemon_family']['family_id'] == pokemon['pokemon_id'] or inventory_item['inventory_item_data']['pokemon_family']['family_id'] == (pokemon['pokemon_id'] - 1)) and inventory_item['inventory_item_data']['pokemon_family'].get('candy', 0) > CANDY_NEEDED_TO_EVOLVE[pokemon['pokemon_id']] and pokemon['pokemon_id'] not in self.evolved_pokemon_ids:
                                 self.log.info("Evolving pokemon: %s", self.pokemon_names[str(pokemon['pokemon_id'])])
                                 self.evolve_pokemon(pokemon_id=pokemon['id'])  # quick press ctrl + c to stop the evolution
-                for pokemon in pokemons[MIN_SIMILAR_POKEMON:]:
-                    if 'cp' in pokemon and pokemon_iv_percentage(pokemon) < self.MIN_KEEP_IV and pokemon["cp"] < self.KEEP_CP_OVER:  # remove only if the pokemon is under the IV and CP set up
-                        self.log.debug("Releasing pokemon: %s", pokemon)
-                        self.log.info("Releasing pokemon: %s IV: %s", self.pokemon_names[str(pokemon['pokemon_id'])], pokemon_iv_percentage(pokemon))
-                        self.release_pokemon(pokemon_id=pokemon["id"])  # release the unwanted pokemon
-
+                                self.evolved_pokemon_ids.append(pokemon['pokemon_id'])
+                                if self.SLOW_BUT_STEALTH:
+                                    sleep(3 * random.random() + 5)
         if self.RELEASE_DUPLICATES:
             for pokemons in caught_pokemon.values():
                 if len(pokemons) > MIN_SIMILAR_POKEMON:
-                    pokemons = sorted(pokemons, lambda x, y: cmp(self.pokemon_names[str(x['pokemon_id'])], self.pokemon_names[str(y['pokemon_id'])]))
+                    pokemons = sorted(pokemons, lambda x, y: cmp(x['cp'], y['cp']), reverse=True)
                     last_pokemon = pokemons[0]
-                    for pokemon in pokemons[MIN_SIMILAR_POKEMON:]:
-                        if self.pokemon_names[str(pokemon['pokemon_id'])] == self.pokemon_names[str(last_pokemon['pokemon_id'])]:
-                            # Compare two pokemon if the larger IV pokemon has less then DUPLICATE_CP_FORGIVENESS times CP keep it
-                            if pokemon_iv_percentage(pokemon) > pokemon_iv_percentage(last_pokemon):
-                                if pokemon['cp'] * self.DUPLICATE_CP_FORGIVENESS < last_pokemon['cp']:
-                                    # release the lesser!
-                                    self.log.debug("Releasing pokemon: %s", last_pokemon)
-                                    self.log.info("Releasing pokemon: %s IV: %s", self.pokemon_names[str(last_pokemon['pokemon_id'])], pokemon_iv_percentage(last_pokemon))
-                                    self.release_pokemon(pokemon_id=last_pokemon["id"])
-                                last_pokemon = pokemon
-                            else:
-                                if last_pokemon['cp'] * self.DUPLICATE_CP_FORGIVENESS > pokemon['cp']:
-                                    # release the lesser!
-                                    self.log.debug("Releasing pokemon: %s", pokemon)
-                                    self.log.info("Releasing pokemon: %s IV: %s", self.pokemon_names[str(pokemon['pokemon_id'])], pokemon_iv_percentage(pokemon))
-                                    self.release_pokemon(pokemon_id=pokemon["id"])
-                                last_pokemon = pokemon
+                    for pokemon in pokemons:
+                        self.log.debug('Excess pokemon: %s CP: %s', self.pokemon_names[str(pokemon['pokemon_id'])], pokemon['cp'])
+                        if pokemon['pokemon_id'] not in self.evolved_pokemon_ids:
+                            if self.pokemon_names[str(pokemon['pokemon_id'])] == self.pokemon_names[str(last_pokemon['pokemon_id'])]:
+                                # Compare two pokemon if the larger IV pokemon has less then DUPLICATE_CP_FORGIVENESS times CP keep it
+                                if pokemon_iv_percentage(pokemon) > pokemon_iv_percentage(last_pokemon):
+                                    if last_pokemon['cp'] * self.DUPLICATE_CP_FORGIVENESS < pokemon['cp']:
+                                        try:
+                                            atgym = len(last_pokemon['deployed_fort_id']) > 0
+                                            if atgym:
+                                                self.log.info("Pokemon %s CP: %s not released because at gym", self.pokemon_names[str(last_pokemon['pokemon_id'])], last_pokemon['cp'])
+                                        except:
+                                            atgym = False
+                                        if not atgym:
+                                            self.log.debug("Releasing pokemon: %s", last_pokemon)
+                                            self.log.info("Releasing pokemon: %s IV: %s", self.pokemon_names[str(last_pokemon['pokemon_id'])], pokemon_iv_percentage(last_pokemon))
+                                            self.release_pokemon(pokemon_id=last_pokemon["id"])
+                                    last_pokemon = pokemon
+                                else:
+                                    if last_pokemon['cp'] * self.DUPLICATE_CP_FORGIVENESS > pokemon['cp']:
+                                        try:
+                                            atgym = len(pokemon['deployed_fort_id']) > 0
+                                            if atgym:
+                                                self.log.info("Pokemon %s not released because at gym", self.pokemon_names[str(pokemon['pokemon_id'])])
+                                        except:
+                                            atgym = False
+                                        if not atgym:
+                                            self.log.debug("Releasing pokemon: %s", pokemon)
+                                            self.log.info("Releasing pokemon: %s IV: %s", self.pokemon_names[str(pokemon['pokemon_id'])], pokemon_iv_percentage(pokemon))
+                                            self.release_pokemon(pokemon_id=pokemon["id"])
 
         return self.call()
 
@@ -440,17 +465,25 @@ class PGoApi:
                                 self.log.debug("Caught Pokemon: : %s", catch_attempt)
                                 self.log.info("Caught Pokemon:  %s", self.pokemon_names[str(resp['pokemon_data']['pokemon_id'])])
                                 self._pokeball_type = 1
-                                sleep(self.RANDOM_SLEEP_TIME * random.random() + 2) # If you want to make it faster, delete this line... would not recommend though
+                                if self.SLOW_BUT_STEALTH:
+                                    sleep(3 * random.random() + 2)
+                                else:
+                                    sleep(2)
                                 return catch_attempt
                             elif capture_status == 2:
                                 self.log.info("Pokemon %s is too wild", self.pokemon_names[str(resp['pokemon_data']['pokemon_id'])])
                                 if self._pokeball_type < self.MAX_BALL_TYPE:
                                     self._pokeball_type += 1
+                                if self.SLOW_BUT_STEALTH:
+                                    sleep(3 * random.random() + 5)
                             elif capture_status == 3:
                                 self.log.debug("Failed Catch: : %s", catch_attempt)
                                 self.log.info("Failed to Catch Pokemon:  %s", self.pokemon_names[str(resp['pokemon_data']['pokemon_id'])])
                                 self._pokeball_type = 1
-                    sleep(self.RANDOM_SLEEP_TIME * random.random() + 2) # If you want to make it faster, delete this line... would not recommend though
+                    if self.SLOW_BUT_STEALTH:
+                        sleep(3 * random.random() + 2)
+                    else:
+                        sleep(1)
             return False
         except Exception as e:
             self.log.error("Error in disk encounter %s", e)
@@ -483,17 +516,25 @@ class PGoApi:
                             self.log.debug("Caught Pokemon: : %s", catch_attempt)  # you did it
                             self.log.info("Caught Pokemon:  %s", self.pokemon_names[str(pokemon['pokemon_id'])])
                             self._pokeball_type = 1
-                            sleep(self.RANDOM_SLEEP_TIME * random.random() + 2) # If you want to make it faster, delete this line... would not recommend though
+                            if self.SLOW_BUT_STEALTH:
+                                sleep(3 * random.random() + 10)
+                            else:
+                                sleep(2)
                             return catch_attempt
                         elif capture_status == 2:
                             self.log.info("Pokemon %s is too wild", self.pokemon_names[str(pokemon['pokemon_id'])])
                             if self._pokeball_type < self.MAX_BALL_TYPE:
                                 self._pokeball_type += 1  # try with a stronger ball
+                            if self.SLOW_BUT_STEALTH:
+                                sleep(3 * random.random() + 5)
                         elif capture_status == 3:
                             self.log.debug("Failed Catch: : %s", catch_attempt)  # potential soft ban or just a run away
                             self.log.info("Failed to Catch Pokemon:  %s", self.pokemon_names[str(pokemon['pokemon_id'])])
                             self._pokeball_type = 1
-                sleep(self.RANDOM_SLEEP_TIME * random.random() + 2) # If you want to make it faster, delete this line... would not recommend though
+                if self.SLOW_BUT_STEALTH:
+                    sleep(3 * random.random() + 2)
+                else:
+                    sleep(2)
         return False
 
     def login(self, provider, username, password, cached=False):
@@ -513,13 +554,13 @@ class PGoApi:
             self.log.info('Login process failed')
             return False
 
-        self.log.info('Starting RPC login sequence (app simulation)')
+        self.log.debug('Starting RPC login sequence (app simulation)')
         self.get_player()
         self.get_hatched_eggs()
         self.get_inventory()
         self.check_awarded_badges()
         self.download_settings(hash="05daf51635c82611d1aac95c0b051d3ec088a930")  # not sure what this is but dont change it
-
+        sleep(3 * random.random() + 5)
         response = self.call()
 
         if not response:
@@ -547,18 +588,20 @@ class PGoApi:
         if 'auth_ticket' in response:
             self._auth_provider.set_ticket(response['auth_ticket'].values())
 
-        self.log.info('Finished RPC login sequence (app simulation)')
+        self.log.debug('Finished RPC login sequence (app simulation)')
         self.log.info('Login process completed')
+        if self.SLOW_BUT_STEALTH:
+            sleep(3 * random.random() + 10)
 
         return True
 
     def main_loop(self):
         while True:
             self.heartbeat()
-            sleep(self.RANDOM_SLEEP_TIME * random.random() + 1) # If you want to make it faster, delete this line... would not recommend though
+            sleep(1 * random.random() + 1) # If you want to make it faster, delete this line... would not recommend though
             if sum(self.pokeballs) > 0:  # if you do not have any balls skip pokemon catching
                 while self.catch_near_pokemon():
-                    sleep(self.RANDOM_SLEEP_TIME * random.random() + 4) # If you want to make it faster, delete this line... would not recommend though
+                    sleep(1 * random.random() + 2) # If you want to make it faster, delete this line... would not recommend though
             else:
                 self.log.info("Less than 1 Poke Balls: Entering pokestops only")
             self.spin_near_fort()  # check local pokestop
