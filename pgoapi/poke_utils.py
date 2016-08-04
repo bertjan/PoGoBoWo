@@ -6,18 +6,20 @@ def pokemon_iv_percentage(pokemon):
         'individual_defense', 0) + 0.0) / 45.0) * 100.0
 
 
-def get_pokemon_num(res):
+def extract_items_dict(res):
     inventory_delta = res['responses']['GET_INVENTORY'].get('inventory_delta', {})
     inventory_items = inventory_delta.get('inventory_items', [])
-    inventory_items_dict_list = map(lambda x: x.get('inventory_item_data', {}), inventory_items)
+    return map(lambda x: x.get('inventory_item_data', {}), inventory_items)
+
+
+def get_pokemon_num(res):
+    inventory_items_dict_list = extract_items_dict(res)
     inventory_items_pokemon_list = filter(lambda x: 'pokemon_data' in x and 'is_egg' not in x['pokemon_data'], inventory_items_dict_list)
     return len(inventory_items_pokemon_list)
 
 
 def get_inventory_data(res, poke_names):
-    inventory_delta = res['responses']['GET_INVENTORY'].get('inventory_delta', {})
-    inventory_items = inventory_delta.get('inventory_items', [])
-    inventory_items_dict_list = map(lambda x: x.get('inventory_item_data', {}), inventory_items)
+    inventory_items_dict_list = extract_items_dict(res)
     inventory_items_pokemon_list = filter(lambda x: 'pokemon_data' in x and 'is_egg' not in x['pokemon_data'],
                                           inventory_items_dict_list)
     inventory_items_pokemon_list_sorted = sorted(inventory_items_pokemon_list, key=lambda x: poke_names[str(x['pokemon_data']['pokemon_id'])].encode('ascii', 'ignore'))
@@ -39,15 +41,48 @@ def get_inventory_data(res, poke_names):
     return pk_list
 
 
-def get_incubators_stat(res):
-    inventory_delta = res['responses']['GET_INVENTORY'].get('inventory_delta', {})
-    inventory_items = inventory_delta.get('inventory_items', [])
-    inventory_items_incubators = map(lambda x: x.get('inventory_item_data', {}), inventory_items)
-    inventory_items_dict_list = map(lambda x: x.get('egg_incubators', {}), inventory_items_incubators)
-    inventory_items_incubator_list = filter(lambda x: 'egg_incubator' in x and 'target_km_walked' in x, inventory_items_dict_list)
-    if inventory_items_incubator_list:
-        return (os.linesep.join(map(lambda x: "Incubator {0:.2f} km, walked {1:.2f} km".format(
-            x['egg_incubator']['target_km_walked'],
-            x['egg_incubator']['start_km_walked']), inventory_items_incubator_list)))
+def get_player_stats(res):
+    inventory_items_dict_list = extract_items_dict(res)
+    player_stats = filter(lambda x: len(x) > 0, map(lambda x: x.get('player_stats', {}), inventory_items_dict_list))
+    if len(player_stats) > 0:
+        return player_stats[0]
     else:
-        return 'No incubators'
+        return {}
+
+
+def get_eggs_stat(res):
+    inventory_items_dict_list = extract_items_dict(res)
+    all_eggs = filter(lambda x: 'pokemon_data' in x and 'is_egg' in x['pokemon_data'], inventory_items_dict_list)
+    hatching_eggs = filter(lambda x: 'id' in x['pokemon_data'] and 'egg_incubator_id' in x['pokemon_data'], all_eggs)
+    immature_eggs = filter(lambda x: 'id' in x['pokemon_data'] and 'egg_incubator_id' not in x['pokemon_data'], all_eggs)
+    return hatching_eggs, immature_eggs
+
+
+def get_incubators_stat(res):
+    inventory_items_dict_list = extract_items_dict(res)
+    inventory_items_incubators = map(lambda x: x.get('egg_incubators', {}).get('egg_incubator', {}), inventory_items_dict_list)
+    inventory_items_incubator_list = reduce(lambda x, y: x + y, filter(lambda x: len(x) > 0, inventory_items_incubators))
+    inventory_items_hatching_incubator_list = filter(lambda x: 'id' in x and 'target_km_walked' in x, inventory_items_incubator_list)
+    inventory_items_empty_incubator_list = filter(lambda x: 'id' in x and 'target_km_walked' not in x, inventory_items_incubator_list)
+    return inventory_items_hatching_incubator_list, inventory_items_empty_incubator_list
+
+
+def incubators_stat_str(res):
+    hatching_incubator_list, empty_incubator_list = get_incubators_stat(res)
+    incubators_stat = ''
+    if len(hatching_incubator_list) > 0:
+        km_walked = get_player_stats(res).get('km_walked', -1)
+        incubators_stat += "\n" + (os.linesep.join(map(lambda x: "Incubator {0:.2f} km, walked {1:.2f} km {2}".format(
+            x['target_km_walked'],
+            km_walked,
+            '(Done)' if km_walked >= x['target_km_walked'] else '',
+        ), hatching_incubator_list)))
+    else:
+        incubators_stat += '\nNo hatching incubators'
+
+    if len(empty_incubator_list) > 0:
+        incubators_stat += "\n" + (os.linesep.join(map(lambda x: "Incubator id: {0}, uses_remaining: {1} time(s)".format(
+            x['id'], x.get('uses_remaining', 'inf')), empty_incubator_list)))
+    else:
+        incubators_stat += '\nAll incubators are using'
+    return incubators_stat

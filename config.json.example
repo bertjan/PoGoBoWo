@@ -14,6 +14,8 @@
         "RETURN_START_INTERVAL": 20,
         "MAX_BALL_TYPE": 2,
         "SLOW_BUT_STEALTH": false,
+        "AUTO_HATCHING": false,
+        "WEB_PORT": 3001,
         "MIN_ITEM_COUNTS": {
             "ITEM_POKE_BALL": 15,
             "ITEM_GREAT_BALL": 25,
@@ -42,6 +44,7 @@
         "RETURN_START_INTERVAL": 20,
         "MAX_BALL_TYPE": 2,
         "SLOW_BUT_STEALTH": false,
+        "AUTO_HATCHING": false,
         "MIN_ITEM_COUNTS": {
             "ITEM_POKE_BALL": 15,
             "ITEM_GREAT_BALL": 25,

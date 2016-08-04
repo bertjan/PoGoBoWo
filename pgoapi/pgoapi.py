@@ -20,7 +20,8 @@ import random
 import json
 from pgoapi.location import distance_in_meters, get_increments, get_neighbors, get_route, filtered_forts
 # import pgoapi.protos.POGOProtos.Enums_pb2 as RpcEnum
-from pgoapi.poke_utils import pokemon_iv_percentage, get_inventory_data, get_pokemon_num, get_incubators_stat
+from pgoapi.poke_utils import pokemon_iv_percentage, get_inventory_data, get_pokemon_num, get_incubators_stat, incubators_stat_str, \
+    get_eggs_stat
 from time import sleep
 from collections import defaultdict
 import os.path
@@ -156,6 +157,7 @@ class PGoApi:
         self.DUPLICATE_CP_FORGIVENESS = config.get("DUPLICATE_CP_FORGIVENESS", 0)
         self.MAX_BALL_TYPE = config.get("MAX_BALL_TYPE", 0)
         self.SLOW_BUT_STEALTH = config.get("SLOW_BUT_STEALTH", 0)
+        self.AUTO_HATCHING = config.get("AUTO_HATCHING", False)
         self._req_method_list = []
         self._heartbeat_number = 0
         self.pokemon_names = pokemon_names
@@ -268,7 +270,7 @@ class PGoApi:
             # new inventory data has just been saved, clearing evolved pokemons list
             self.evolved_pokemon_ids = []
             # create string with pokemon list, add users info and print everything
-            self.log.info("\n\nList of Pokemon:\n" + get_inventory_data(res, self.pokemon_names) + "\nTotal Pokemon count: " + str(get_pokemon_num(res)) + "\nEgg Hatching status: " + get_incubators_stat(res) + "\n")
+            self.log.info("\n\nList of Pokemon:\n" + get_inventory_data(res, self.pokemon_names) + "\nTotal Pokemon count: " + str(get_pokemon_num(res)) + "\nEgg Hatching status: " + incubators_stat_str(res) + "\n")
             self.log.info("\n\n Username: %s, Lvl: %s, XP: %s/%s \n Currencies: %s \n", player_data.get('username', 'NA'), player_stats.get('level', 'NA'), player_stats.get('experience', 'NA'), player_stats.get('next_level_xp', 'NA'), currency_data)
             self.log.debug(self.cleanup_inventory(res['responses']['GET_INVENTORY']['inventory_delta']['inventory_items']))
         self._heartbeat_number += 1
@@ -293,6 +295,10 @@ class PGoApi:
                             sleep(3 * random.random() + 1) # If you want to make it faster, delete this line... would not recommend though
                         else:
                             sleep(1)
+        if self.AUTO_HATCHING:
+            hatching_eggs_count = self.attempt_hatch_eggs()
+            if hatching_eggs_count > 0:
+                self.log.info("Start hatching %d eggs", hatching_eggs_count)
 
     # this is in charge of spinning a pokestop
     def spin_near_fort(self):
@@ -594,6 +600,37 @@ class PGoApi:
             sleep(3 * random.random() + 10)
 
         return True
+
+    def attempt_hatch_eggs(self, res=None):
+        self.get_hatched_eggs().call()
+        if not res:
+            res = self.get_inventory().call()
+        hatching_incubator_list, empty_incubator_list = get_incubators_stat(res)
+        hatching_eggs, immature_eggs = get_eggs_stat(res)
+        hatching_eggs_count = 0
+        for immature_egg in immature_eggs:
+            egg_id = immature_egg['pokemon_data']['id']
+            if len(empty_incubator_list) > 0:
+                # Always use first incubator.
+                incubator_index = 0
+                incubator_id = empty_incubator_list[incubator_index]['id']
+                uses_remaining = empty_incubator_list[incubator_index].get('uses_remaining', 0) - 1
+                if self.hatch_egg(incubator_id, egg_id):
+                    hatching_eggs_count += 1
+                    # Update incubator manually to save api call().
+                    empty_incubator_list[incubator_index]['uses_remaining'] = uses_remaining
+                    if uses_remaining <= 0:
+                        del(empty_incubator_list[incubator_index])
+        return hatching_eggs_count
+
+    def hatch_egg(self, incubator_id, egg_id):
+        response = self.use_item_egg_incubator(item_id=incubator_id, pokemon_id=egg_id).call()
+        result = response.get('responses', {}).get('USE_ITEM_EGG_INCUBATOR', {})
+        if len(result) == 0:
+            return False
+        if "result" in result:
+            self.log.debug("Result: %d", result['result'])
+        return result.get('result', 0) == 1
 
     def main_loop(self):
         while True:

@@ -1,5 +1,4 @@
 import flask
-import os
 import logging
 
 from flask.helpers import send_from_directory
@@ -79,8 +78,7 @@ def api_pokemon_names():
     return flask.jsonify(pogo_server.api.pokemon_names)
 
 
-def start_server(api):
+def start_server(api, port):
     logging.getLogger("_internal").setLevel(logging.ERROR)  # Silence flask
-    port = os.getenv('PORT', 3001)
     pogo_server.api = api
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)

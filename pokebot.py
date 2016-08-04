@@ -90,7 +90,7 @@ def main():
 
     api = PGoApi(config.__dict__, pokemon_names, position)
 
-    thread.start_new_thread(start_server, (api,))
+    thread.start_new_thread(start_server, (api, config.WEB_PORT))
 
     if not api.login(config.auth_service, config.username, config.password, config.cached):
         return
